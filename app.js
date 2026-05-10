@@ -31,7 +31,7 @@ function buildDeck() {
   for (const suit of ["clubs","spades","hearts","diamonds"]) {
     for (const rank of ["2","3","4","5","6","7","8","9","10","J","Q","K","A"]) {
       if ((suit === "hearts" || suit === "diamonds") && ["J","Q","K","A"].includes(rank)) continue;
-      deck.push({ suit, rank, id: `${suit}-${rank}` }); 
+      deck.push({ suit, rank, id: `${suit}-${rank}` });
     }
   }
   return deck;
@@ -48,7 +48,6 @@ function shuffle(arr, startSeed) {
   return { shuffled: a, newSeed: currentSeed };
 }
 
-// Ensure enough cards are in the dungeon
 function ensureDungeon(dungeon, curSeed, needed) {
   let d = [...dungeon];
   let seed = curSeed;
@@ -64,51 +63,61 @@ function ensureDungeon(dungeon, curSeed, needed) {
 function verifyRun(seedString, actions, claimedScore) {
   let initialIntSeed = hashStringToSeed(seedString);
   let { shuffled: deck, newSeed: currentSeed } = shuffle(buildDeck(), initialIntSeed);
-  
+
   let dungeon = deck.slice(4);
-  let room = deck.slice(0, 4);
-  
-  let health = 20;
-  let score = 0;
-  let equippedWeapon = null;
-  let weaponLastSlain = null;
+  let room    = deck.slice(0, 4);
+
+  let health             = 20;
+  let score              = 0;
+  let equippedWeapon     = null;
+  let weaponLastSlain    = null;
   let potionUsedThisTurn = false;
-  let choseThisTurn = 0;
-  let canAvoid = true;
-  
+  let choseThisTurn      = 0;
+  let canAvoid           = true;
+
+  // Initialise maxChoices for the starting room (matches frontend endTurnAndDraw formula)
+  let maxChoices = dungeon.length === 0
+    ? room.length
+    : Math.min(3, Math.max(1, room.length - 1));
+
   for (const action of actions) {
     if (health <= 0) return { valid: false, reason: "Actions continued after death." };
 
     if (action.choice === "flee") {
       if (!canAvoid) return { valid: false, reason: "Attempted illegal consecutive flee." };
-      
-      const monsterTotal = room.filter(c => cardType(c) === "monster").reduce((sum, c) => sum + cardValue(c), 0);
+
+      const monsterTotal = room
+        .filter(c => cardType(c) === "monster")
+        .reduce((sum, c) => sum + cardValue(c), 0);
       score -= Math.round(monsterTotal * 0.1);
-      
+
       const full = [...dungeon, ...room];
-      const res = ensureDungeon(full, currentSeed, 4);
-      dungeon = res.dungeon.slice(4);
-      room = res.dungeon.slice(0, 4);
+      const res  = ensureDungeon(full, currentSeed, 4);
+      dungeon     = res.dungeon.slice(4);
+      room        = res.dungeon.slice(0, 4);
       currentSeed = res.newSeed;
-      
-      canAvoid = false;
-      choseThisTurn = 0;
+
+      canAvoid           = false;
+      choseThisTurn      = 0;
       potionUsedThisTurn = false;
+      // Recalculate maxChoices for the newly drawn room after flee
+      maxChoices = dungeon.length === 0
+        ? room.length
+        : Math.min(3, Math.max(1, room.length - 1));
       continue;
     }
-    
-    // Find target card
+
     const cardIdx = room.findIndex(c => c.id === action.cardId);
     if (cardIdx === -1) return { valid: false, reason: `Card ${action.cardId} not in room.` };
     const card = room[cardIdx];
-    room.splice(cardIdx, 1); // Remove from room
-    
+    room.splice(cardIdx, 1);
+
     const type = cardType(card);
-    const val = cardValue(card);
+    const val  = cardValue(card);
     const boss = isBossCard(card);
-    
+
     if (type === "weapon" && action.choice === "equip_weapon") {
-      equippedWeapon = card;
+      equippedWeapon  = card;
       weaponLastSlain = null;
     } else if (type === "potion" && action.choice === "drink_potion") {
       if (!potionUsedThisTurn) {
@@ -129,41 +138,43 @@ function verifyRun(seedString, actions, claimedScore) {
       } else {
         return { valid: false, reason: "Invalid combat action." };
       }
-      
+
       if (boss) {
-        const res = shuffle(buildDeck(), currentSeed);
-        dungeon = [...dungeon, ...res.shuffled];
+        const res   = shuffle(buildDeck(), currentSeed);
+        dungeon     = [...dungeon, ...res.shuffled];
         currentSeed = res.newSeed;
       }
     }
-    
+
     choseThisTurn++;
-    
-    // End of Turn Logic
-    const maxChoices = dungeon.length === 0 ? room.length + 1 : Math.min(3, Math.max(1, room.length));
+
     if (choseThisTurn >= maxChoices) {
       const needed = 4 - room.length;
-      const res = ensureDungeon(dungeon, currentSeed, needed > 0 ? needed : 0);
-      dungeon = res.dungeon.slice(needed);
-      room = [...room, ...res.dungeon.slice(0, needed)];
-      currentSeed = res.newSeed;
-      
+      const res    = ensureDungeon(dungeon, currentSeed, needed > 0 ? needed : 0);
+      dungeon      = res.dungeon.slice(needed);
+      room         = [...room, ...res.dungeon.slice(0, needed)];
+      currentSeed  = res.newSeed;
+
       if (room.length === 0) {
         const fresh = shuffle(buildDeck(), currentSeed);
-        dungeon = fresh.shuffled.slice(4);
-        room = fresh.shuffled.slice(0, 4);
+        dungeon     = fresh.shuffled.slice(4);
+        room        = fresh.shuffled.slice(0, 4);
         currentSeed = fresh.newSeed;
       }
-      
-      choseThisTurn = 0;
+
+      choseThisTurn      = 0;
       potionUsedThisTurn = false;
-      canAvoid = true;
+      canAvoid           = true;
+      // Recalculate maxChoices for the newly formed room
+      maxChoices = dungeon.length === 0
+        ? room.length
+        : Math.min(3, Math.max(1, room.length - 1));
     }
   }
-  
+
   if (health > 0) return { valid: false, reason: "Run submitted before death." };
   if (score !== claimedScore) return { valid: false, reason: `Score mismatch. Claimed: ${claimedScore}, Calculated: ${score}` };
-  
+
   return { valid: true, calculatedScore: score };
 }
 
@@ -171,10 +182,10 @@ function verifyRun(seedString, actions, claimedScore) {
 app.post('/api/submit-score', (req, res) => {
     const { playerName, seed, finalScore, actions } = req.body;
     console.log(`[Replay Pending] Verifying run for ${playerName}...`);
-    
+
     try {
         const verification = verifyRun(seed, actions, finalScore);
-        
+
         if (verification.valid) {
             console.log(`[Replay Approved] ${playerName} scored ${verification.calculatedScore}.`);
             // TODO: Here is where you will write to Postgres/Redis/MongoDB
